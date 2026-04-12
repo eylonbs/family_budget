@@ -5,6 +5,7 @@ import csv
 import io
 import hashlib
 import secrets
+import traceback
 from datetime import datetime, date
 from typing import Optional, Dict
 
@@ -83,18 +84,6 @@ class TransactionCreate(BaseModel):
     recurring: bool = False
 
 
-class TransactionOut(BaseModel):
-    id: int
-    description: str
-    amount: float
-    type: str
-    category: str
-    paid_by: str
-    date: str
-    recurring: bool
-    created_at: str
-
-
 # ── Transactions CRUD ─────────────────────────────────────────────────────────
 
 @app.get("/api/transactions")
@@ -103,51 +92,60 @@ def list_transactions(
     _=Depends(verify_session),
 ):
     conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute(
-        """SELECT id, description, amount, type, category, paid_by, date,
-                  recurring, created_at::text as created_at
-           FROM transactions
-           WHERE to_char(date::date, 'YYYY-MM') = %s
-           ORDER BY date DESC, id DESC""",
-        (month,),
-    )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return [dict(r) for r in rows]
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            """SELECT id, description, amount, type, category, paid_by, date,
+                      recurring, created_at::text as created_at
+               FROM transactions
+               WHERE to_char(date::date, 'YYYY-MM') = %s
+               ORDER BY date DESC, id DESC""",
+            (month,),
+        )
+        rows = cur.fetchall()
+        cur.close()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
 
 
 @app.post("/api/transactions", status_code=201)
 def create_transaction(tx: TransactionCreate, _=Depends(verify_session)):
     conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute(
-        """INSERT INTO transactions (description, amount, type, category, paid_by, date, recurring)
-           VALUES (%s, %s, %s, %s, %s, %s, %s)
-           RETURNING id, description, amount, type, category, paid_by, date,
-                     recurring, created_at::text as created_at""",
-        (tx.description, tx.amount, tx.type, tx.category, tx.paid_by, tx.date, tx.recurring),
-    )
-    row = cur.fetchone()
-    conn.commit()
-    cur.close()
-    conn.close()
-    return dict(row)
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            """INSERT INTO transactions (description, amount, type, category, paid_by, date, recurring)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)
+               RETURNING id, description, amount, type, category, paid_by, date,
+                         recurring, created_at::text as created_at""",
+            (tx.description, tx.amount, tx.type, tx.category, tx.paid_by, tx.date, tx.recurring),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        cur.close()
+        return dict(row)
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
 
 
 @app.delete("/api/transactions/{tx_id}")
 def delete_transaction(tx_id: int, _=Depends(verify_session)):
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM transactions WHERE id = %s", (tx_id,))
-    deleted = cur.rowcount
-    conn.commit()
-    cur.close()
-    conn.close()
-    if deleted == 0:
-        raise HTTPException(status_code=404, detail="Transaction not found")
-    return {"ok": True}
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM transactions WHERE id = %s", (tx_id,))
+        deleted = cur.rowcount
+        conn.commit()
+        cur.close()
+        if deleted == 0:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+        return {"ok": True}
+    finally:
+        conn.close()
 
 
 # ── Summary ───────────────────────────────────────────────────────────────────
@@ -158,43 +156,45 @@ def monthly_summary(
     _=Depends(verify_session),
 ):
     conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute(
-        "SELECT * FROM transactions WHERE to_char(date::date, 'YYYY-MM') = %s",
-        (month,),
-    )
-    rows = cur.fetchall()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            "SELECT * FROM transactions WHERE to_char(date::date, 'YYYY-MM') = %s",
+            (month,),
+        )
+        rows = cur.fetchall()
 
-    income = sum(r["amount"] for r in rows if r["type"] == "income")
-    expenses = sum(r["amount"] for r in rows if r["type"] == "expense")
-    balance = income - expenses
-    savings_rate = ((income - expenses) / income * 100) if income > 0 else 0
+        income = sum(r["amount"] for r in rows if r["type"] == "income")
+        expenses = sum(r["amount"] for r in rows if r["type"] == "expense")
+        balance = income - expenses
+        savings_rate = ((income - expenses) / income * 100) if income > 0 else 0
 
-    eylon_spent = sum(r["amount"] for r in rows if r["type"] == "expense" and r["paid_by"] == "Eylon")
-    ronny_spent = sum(r["amount"] for r in rows if r["type"] == "expense" and r["paid_by"] == "Ronny")
+        eylon_spent = sum(r["amount"] for r in rows if r["type"] == "expense" and r["paid_by"] == "Eylon")
+        ronny_spent = sum(r["amount"] for r in rows if r["type"] == "expense" and r["paid_by"] == "Ronny")
 
-    cat_totals: Dict[str, float] = {}
-    for r in rows:
-        if r["type"] == "expense":
-            cat_totals[r["category"]] = cat_totals.get(r["category"], 0) + r["amount"]
+        cat_totals: Dict[str, float] = {}
+        for r in rows:
+            if r["type"] == "expense":
+                cat_totals[r["category"]] = cat_totals.get(r["category"], 0) + r["amount"]
 
-    income_count = sum(1 for r in rows if r["type"] == "income")
-    expense_count = sum(1 for r in rows if r["type"] == "expense")
+        income_count = sum(1 for r in rows if r["type"] == "income")
+        expense_count = sum(1 for r in rows if r["type"] == "expense")
 
-    cur.close()
-    conn.close()
-    return {
-        "income": income,
-        "expenses": expenses,
-        "balance": balance,
-        "savings_rate": round(savings_rate, 1),
-        "income_count": income_count,
-        "expense_count": expense_count,
-        "eylon_spent": eylon_spent,
-        "ronny_spent": ronny_spent,
-        "category_totals": cat_totals,
-        "total_transactions": len(rows),
-    }
+        cur.close()
+        return {
+            "income": income,
+            "expenses": expenses,
+            "balance": balance,
+            "savings_rate": round(savings_rate, 1),
+            "income_count": income_count,
+            "expense_count": expense_count,
+            "eylon_spent": eylon_spent,
+            "ronny_spent": ronny_spent,
+            "category_totals": cat_totals,
+            "total_transactions": len(rows),
+        }
+    finally:
+        conn.close()
 
 
 @app.get("/api/summary/yearly")
@@ -203,35 +203,37 @@ def yearly_summary(
     _=Depends(verify_session),
 ):
     conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute(
-        "SELECT * FROM transactions WHERE to_char(date::date, 'YYYY') = %s",
-        (str(year),),
-    )
-    rows = cur.fetchall()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            "SELECT * FROM transactions WHERE to_char(date::date, 'YYYY') = %s",
+            (str(year),),
+        )
+        rows = cur.fetchall()
 
-    monthly: Dict[str, Dict] = {}
-    for r in rows:
-        m = r["date"][:7]
-        if m not in monthly:
-            monthly[m] = {"income": 0, "expenses": 0}
-        if r["type"] == "income":
-            monthly[m]["income"] += r["amount"]
-        else:
-            monthly[m]["expenses"] += r["amount"]
+        monthly: Dict[str, Dict] = {}
+        for r in rows:
+            m = r["date"][:7]
+            if m not in monthly:
+                monthly[m] = {"income": 0, "expenses": 0}
+            if r["type"] == "income":
+                monthly[m]["income"] += r["amount"]
+            else:
+                monthly[m]["expenses"] += r["amount"]
 
-    total_income = sum(v["income"] for v in monthly.values())
-    total_expenses = sum(v["expenses"] for v in monthly.values())
+        total_income = sum(v["income"] for v in monthly.values())
+        total_expenses = sum(v["expenses"] for v in monthly.values())
 
-    cur.close()
-    conn.close()
-    return {
-        "year": year,
-        "total_income": total_income,
-        "total_expenses": total_expenses,
-        "balance": total_income - total_expenses,
-        "monthly": monthly,
-    }
+        cur.close()
+        return {
+            "year": year,
+            "total_income": total_income,
+            "total_expenses": total_expenses,
+            "balance": total_income - total_expenses,
+            "monthly": monthly,
+        }
+    finally:
+        conn.close()
 
 
 # ── Budget Goals ──────────────────────────────────────────────────────────────
@@ -249,43 +251,50 @@ def get_budget_goals(
     _=Depends(verify_session),
 ):
     conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM budget_goals WHERE month = %s", (month,))
-    goal = cur.fetchone()
-    cur.execute("SELECT category, limit_amount FROM category_limits WHERE month = %s", (month,))
-    limits = cur.fetchall()
-    cur.close()
-    conn.close()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM budget_goals WHERE month = %s", (month,))
+        goal = cur.fetchone()
+        cur.execute("SELECT category, limit_amount FROM category_limits WHERE month = %s", (month,))
+        limits = cur.fetchall()
+        cur.close()
 
-    return {
-        "month": month,
-        "monthly_budget": goal["monthly_budget"] if goal else 0,
-        "savings_target": goal["savings_target"] if goal else 0,
-        "category_limits": {r["category"]: r["limit_amount"] for r in limits},
-    }
+        return {
+            "month": month,
+            "monthly_budget": goal["monthly_budget"] if goal else 0,
+            "savings_target": goal["savings_target"] if goal else 0,
+            "category_limits": {r["category"]: r["limit_amount"] for r in limits},
+        }
+    finally:
+        conn.close()
 
 
 @app.put("/api/budget-goals")
 def update_budget_goals(body: BudgetGoalUpdate, _=Depends(verify_session)):
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute(
-        """INSERT INTO budget_goals (month, monthly_budget, savings_target)
-           VALUES (%s, %s, %s)
-           ON CONFLICT(month) DO UPDATE SET monthly_budget=EXCLUDED.monthly_budget, savings_target=EXCLUDED.savings_target""",
-        (body.month, body.monthly_budget, body.savings_target),
-    )
-    for cat, limit in body.category_limits.items():
+    try:
+        cur = conn.cursor()
         cur.execute(
-            """INSERT INTO category_limits (month, category, limit_amount)
+            """INSERT INTO budget_goals (month, monthly_budget, savings_target)
                VALUES (%s, %s, %s)
-               ON CONFLICT(month, category) DO UPDATE SET limit_amount=EXCLUDED.limit_amount""",
-            (body.month, cat, limit),
+               ON CONFLICT(month) DO UPDATE SET monthly_budget=EXCLUDED.monthly_budget, savings_target=EXCLUDED.savings_target""",
+            (body.month, body.monthly_budget, body.savings_target),
         )
-    conn.commit()
-    cur.close()
-    conn.close()
-    return {"ok": True}
+        for cat, limit in body.category_limits.items():
+            cur.execute(
+                """INSERT INTO category_limits (month, category, limit_amount)
+                   VALUES (%s, %s, %s)
+                   ON CONFLICT(month, category) DO UPDATE SET limit_amount=EXCLUDED.limit_amount""",
+                (body.month, cat, limit),
+            )
+        conn.commit()
+        cur.close()
+        return {"ok": True}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
 
 
 # ── CSV Export ────────────────────────────────────────────────────────────────
@@ -296,17 +305,19 @@ def export_csv(
     _=Depends(verify_session),
 ):
     conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute(
-        """SELECT date, description, category, type, amount, paid_by, recurring
-           FROM transactions
-           WHERE to_char(date::date, 'YYYY-MM') = %s
-           ORDER BY date DESC""",
-        (month,),
-    )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            """SELECT date, description, category, type, amount, paid_by, recurring
+               FROM transactions
+               WHERE to_char(date::date, 'YYYY-MM') = %s
+               ORDER BY date DESC""",
+            (month,),
+        )
+        rows = cur.fetchall()
+        cur.close()
+    finally:
+        conn.close()
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -322,11 +333,27 @@ def export_csv(
     )
 
 
+# ── Health check ──────────────────────────────────────────────────────────────
+
+@app.get("/api/health")
+def health():
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        cur.close()
+        conn.close()
+        return {"status": "ok", "database": "connected"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "detail": str(e)})
+
+
 # ── Static files & SPA fallback ───────────────────────────────────────────────
 
 @app.on_event("startup")
 def startup():
     init_db()
+    print("Database initialized successfully")
 
 
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")

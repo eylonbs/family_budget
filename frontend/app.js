@@ -22,14 +22,18 @@ function hideLoading() {
   if (loadingOverlay) loadingOverlay.style.display = "none";
 }
 
-async function api(path, opts = {}, retries = 3) {
+async function api(path, opts = {}, retries = 5) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
       const res = await fetch(path, {
         credentials: "same-origin",
         headers: { "Content-Type": "application/json", ...opts.headers },
+        signal: controller.signal,
         ...opts,
       });
+      clearTimeout(timeout);
       hideLoading();
       if (res.status === 401) {
         showLogin();
@@ -47,7 +51,7 @@ async function api(path, opts = {}, retries = 3) {
       if (e.message === "Unauthorized") throw e;
       if (attempt < retries) {
         showLoading("Server is waking up... hang tight (" + attempt + "/" + retries + ")");
-        await new Promise((r) => setTimeout(r, 3000 * attempt));
+        await new Promise((r) => setTimeout(r, 5000));
       } else {
         hideLoading();
         throw e;
