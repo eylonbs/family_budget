@@ -4,6 +4,8 @@ from datetime import datetime
 
 DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.dirname(__file__), "budget.db"))
 
+os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
+
 
 def get_db() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)

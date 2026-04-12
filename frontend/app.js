@@ -1,23 +1,59 @@
 // ─── API HELPERS ─────────────────────────────────────────────────────────────
 
-async function api(path, opts = {}) {
-  const res = await fetch(path, {
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json", ...opts.headers },
-    ...opts,
-  });
-  if (res.status === 401) {
-    showLogin();
-    throw new Error("Unauthorized");
+let loadingOverlay = null;
+
+function showLoading(msg) {
+  if (!loadingOverlay) {
+    loadingOverlay = document.createElement("div");
+    loadingOverlay.id = "loadingOverlay";
+    loadingOverlay.style.cssText =
+      "position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:9999";
+    loadingOverlay.innerHTML =
+      '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl);padding:2rem 2.5rem;text-align:center;box-shadow:var(--shadow-lg)">' +
+      '<div style="font-size:1.5rem;margin-bottom:0.5rem">⏳</div>' +
+      '<div id="loadingMsg" style="font-size:var(--text-sm);color:var(--text)"></div></div>';
+    document.body.appendChild(loadingOverlay);
   }
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: "Request failed" }));
-    throw new Error(err.detail || "Request failed");
+  document.getElementById("loadingMsg").textContent = msg;
+  loadingOverlay.style.display = "flex";
+}
+
+function hideLoading() {
+  if (loadingOverlay) loadingOverlay.style.display = "none";
+}
+
+async function api(path, opts = {}, retries = 3) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(path, {
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", ...opts.headers },
+        ...opts,
+      });
+      hideLoading();
+      if (res.status === 401) {
+        showLogin();
+        throw new Error("Unauthorized");
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: "Request failed" }));
+        throw new Error(err.detail || "Request failed");
+      }
+      if (res.headers.get("content-type")?.includes("json")) {
+        return res.json();
+      }
+      return res;
+    } catch (e) {
+      if (e.message === "Unauthorized") throw e;
+      if (attempt < retries) {
+        showLoading("Server is waking up... hang tight (" + attempt + "/" + retries + ")");
+        await new Promise((r) => setTimeout(r, 3000 * attempt));
+      } else {
+        hideLoading();
+        throw e;
+      }
+    }
   }
-  if (res.headers.get("content-type")?.includes("json")) {
-    return res.json();
-  }
-  return res;
 }
 
 // ─── STATE ───────────────────────────────────────────────────────────────────
