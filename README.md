@@ -1,6 +1,6 @@
 # Family Budget Tracker
 
-A full-stack family budget tracker for couples to manage expenses and income together. Built with FastAPI + SQLite + vanilla JS.
+A full-stack family budget tracker for couples to manage expenses and income together. Built with FastAPI + PostgreSQL + vanilla JS.
 
 ## Features
 
@@ -13,7 +13,7 @@ A full-stack family budget tracker for couples to manage expenses and income tog
 - **CSV export** for any month
 - **Dark mode** with persistence
 - **PIN authentication** to keep data private
-- **Persistent storage** with SQLite (data survives restarts)
+- **Persistent storage** with PostgreSQL (data survives restarts, never lost)
 
 ## Quick Start (Local)
 
@@ -24,10 +24,11 @@ cd money_saver
 pip install -r backend/requirements.txt
 ```
 
-2. **Set your PIN** (optional, defaults to `1234`):
+2. **Set environment variables:**
 
 ```bash
 export APP_PIN="your-secret-pin"
+export DATABASE_URL="postgresql://user:password@localhost:5432/family_budget"
 ```
 
 3. **Run the server:**
@@ -42,17 +43,15 @@ uvicorn backend.main:app --reload --port 8000
 
 1. Push this repo to GitHub.
 
-2. Go to [render.com](https://render.com) and create a new **Web Service**.
+2. Go to [render.com](https://render.com) and click **New** > **Blueprint**.
 
-3. Connect your GitHub repo.
+3. Connect your GitHub repo — Render will read `render.yaml` and create both the web service and PostgreSQL database automatically.
 
-4. Render will detect `render.yaml` and configure everything automatically.
+4. Set the `APP_PIN` environment variable in the Render dashboard to your desired PIN.
 
-5. Set the `APP_PIN` environment variable in the Render dashboard to your desired PIN.
+5. Deploy! Your app will be live at your Render URL.
 
-6. Deploy! Your app will be live at `https://family-budget-tracker.onrender.com`.
-
-> **Note:** Render free tier spins down after 15 minutes of inactivity. The first request after idle takes ~30 seconds. This is normal for personal use.
+> **Note:** Render free tier spins down after 15 minutes of inactivity. The first request after idle takes ~30 seconds. The app shows a loading indicator during this time. Your data is safe in PostgreSQL and is never lost.
 
 ## Project Structure
 
@@ -60,7 +59,7 @@ uvicorn backend.main:app --reload --port 8000
 money_saver/
   backend/
     main.py              # FastAPI app with all API routes + auth
-    database.py          # SQLite setup and schema
+    database.py          # PostgreSQL setup and schema
     requirements.txt     # Python dependencies
   frontend/
     index.html           # Main app page

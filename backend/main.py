@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
+import psycopg2.extras
 
 import sys
 sys.path.insert(0, os.path.dirname(__file__))
@@ -102,12 +103,17 @@ def list_transactions(
     _=Depends(verify_session),
 ):
     conn = get_db()
-    rows = conn.execute(
-        """SELECT * FROM transactions
-           WHERE strftime('%Y-%m', date) = ?
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(
+        """SELECT id, description, amount, type, category, paid_by, date,
+                  recurring, created_at::text as created_at
+           FROM transactions
+           WHERE to_char(date::date, 'YYYY-MM') = %s
            ORDER BY date DESC, id DESC""",
         (month,),
-    ).fetchall()
+    )
+    rows = cur.fetchall()
+    cur.close()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -115,14 +121,17 @@ def list_transactions(
 @app.post("/api/transactions", status_code=201)
 def create_transaction(tx: TransactionCreate, _=Depends(verify_session)):
     conn = get_db()
-    cur = conn.execute(
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(
         """INSERT INTO transactions (description, amount, type, category, paid_by, date, recurring)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (tx.description, tx.amount, tx.type, tx.category, tx.paid_by, tx.date, int(tx.recurring)),
+           VALUES (%s, %s, %s, %s, %s, %s, %s)
+           RETURNING id, description, amount, type, category, paid_by, date,
+                     recurring, created_at::text as created_at""",
+        (tx.description, tx.amount, tx.type, tx.category, tx.paid_by, tx.date, tx.recurring),
     )
-    tx_id = cur.lastrowid
+    row = cur.fetchone()
     conn.commit()
-    row = conn.execute("SELECT * FROM transactions WHERE id = ?", (tx_id,)).fetchone()
+    cur.close()
     conn.close()
     return dict(row)
 
@@ -130,10 +139,13 @@ def create_transaction(tx: TransactionCreate, _=Depends(verify_session)):
 @app.delete("/api/transactions/{tx_id}")
 def delete_transaction(tx_id: int, _=Depends(verify_session)):
     conn = get_db()
-    cur = conn.execute("DELETE FROM transactions WHERE id = ?", (tx_id,))
+    cur = conn.cursor()
+    cur.execute("DELETE FROM transactions WHERE id = %s", (tx_id,))
+    deleted = cur.rowcount
     conn.commit()
+    cur.close()
     conn.close()
-    if cur.rowcount == 0:
+    if deleted == 0:
         raise HTTPException(status_code=404, detail="Transaction not found")
     return {"ok": True}
 
@@ -146,10 +158,12 @@ def monthly_summary(
     _=Depends(verify_session),
 ):
     conn = get_db()
-    rows = conn.execute(
-        "SELECT * FROM transactions WHERE strftime('%Y-%m', date) = ?",
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(
+        "SELECT * FROM transactions WHERE to_char(date::date, 'YYYY-MM') = %s",
         (month,),
-    ).fetchall()
+    )
+    rows = cur.fetchall()
 
     income = sum(r["amount"] for r in rows if r["type"] == "income")
     expenses = sum(r["amount"] for r in rows if r["type"] == "expense")
@@ -167,6 +181,7 @@ def monthly_summary(
     income_count = sum(1 for r in rows if r["type"] == "income")
     expense_count = sum(1 for r in rows if r["type"] == "expense")
 
+    cur.close()
     conn.close()
     return {
         "income": income,
@@ -188,10 +203,12 @@ def yearly_summary(
     _=Depends(verify_session),
 ):
     conn = get_db()
-    rows = conn.execute(
-        "SELECT * FROM transactions WHERE strftime('%Y', date) = ?",
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(
+        "SELECT * FROM transactions WHERE to_char(date::date, 'YYYY') = %s",
         (str(year),),
-    ).fetchall()
+    )
+    rows = cur.fetchall()
 
     monthly: Dict[str, Dict] = {}
     for r in rows:
@@ -206,6 +223,7 @@ def yearly_summary(
     total_income = sum(v["income"] for v in monthly.values())
     total_expenses = sum(v["expenses"] for v in monthly.values())
 
+    cur.close()
     conn.close()
     return {
         "year": year,
@@ -231,12 +249,12 @@ def get_budget_goals(
     _=Depends(verify_session),
 ):
     conn = get_db()
-    goal = conn.execute(
-        "SELECT * FROM budget_goals WHERE month = ?", (month,)
-    ).fetchone()
-    limits = conn.execute(
-        "SELECT category, limit_amount FROM category_limits WHERE month = ?", (month,)
-    ).fetchall()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM budget_goals WHERE month = %s", (month,))
+    goal = cur.fetchone()
+    cur.execute("SELECT category, limit_amount FROM category_limits WHERE month = %s", (month,))
+    limits = cur.fetchall()
+    cur.close()
     conn.close()
 
     return {
@@ -250,20 +268,22 @@ def get_budget_goals(
 @app.put("/api/budget-goals")
 def update_budget_goals(body: BudgetGoalUpdate, _=Depends(verify_session)):
     conn = get_db()
-    conn.execute(
+    cur = conn.cursor()
+    cur.execute(
         """INSERT INTO budget_goals (month, monthly_budget, savings_target)
-           VALUES (?, ?, ?)
-           ON CONFLICT(month) DO UPDATE SET monthly_budget=excluded.monthly_budget, savings_target=excluded.savings_target""",
+           VALUES (%s, %s, %s)
+           ON CONFLICT(month) DO UPDATE SET monthly_budget=EXCLUDED.monthly_budget, savings_target=EXCLUDED.savings_target""",
         (body.month, body.monthly_budget, body.savings_target),
     )
     for cat, limit in body.category_limits.items():
-        conn.execute(
+        cur.execute(
             """INSERT INTO category_limits (month, category, limit_amount)
-               VALUES (?, ?, ?)
-               ON CONFLICT(month, category) DO UPDATE SET limit_amount=excluded.limit_amount""",
+               VALUES (%s, %s, %s)
+               ON CONFLICT(month, category) DO UPDATE SET limit_amount=EXCLUDED.limit_amount""",
             (body.month, cat, limit),
         )
     conn.commit()
+    cur.close()
     conn.close()
     return {"ok": True}
 
@@ -276,13 +296,16 @@ def export_csv(
     _=Depends(verify_session),
 ):
     conn = get_db()
-    rows = conn.execute(
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(
         """SELECT date, description, category, type, amount, paid_by, recurring
            FROM transactions
-           WHERE strftime('%Y-%m', date) = ?
+           WHERE to_char(date::date, 'YYYY-MM') = %s
            ORDER BY date DESC""",
         (month,),
-    ).fetchall()
+    )
+    rows = cur.fetchall()
+    cur.close()
     conn.close()
 
     output = io.StringIO()

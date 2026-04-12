@@ -1,47 +1,43 @@
-import sqlite3
 import os
-from datetime import datetime
+import psycopg2
+import psycopg2.extras
 
-DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.dirname(__file__), "budget.db"))
-
-os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 
-def get_db() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
+def get_db():
+    conn = psycopg2.connect(DATABASE_URL)
     return conn
 
 
 def init_db():
     conn = get_db()
-    conn.executescript("""
+    cur = conn.cursor()
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS transactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             description TEXT NOT NULL,
-            amount REAL NOT NULL,
+            amount DOUBLE PRECISION NOT NULL,
             type TEXT NOT NULL CHECK(type IN ('income', 'expense')),
             category TEXT NOT NULL,
             paid_by TEXT NOT NULL CHECK(paid_by IN ('Me', 'Wife', 'Both')),
             date TEXT NOT NULL,
-            recurring INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            recurring BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW()
         );
 
         CREATE TABLE IF NOT EXISTS budget_goals (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             month TEXT NOT NULL UNIQUE,
-            monthly_budget REAL NOT NULL DEFAULT 0,
-            savings_target REAL NOT NULL DEFAULT 0
+            monthly_budget DOUBLE PRECISION NOT NULL DEFAULT 0,
+            savings_target DOUBLE PRECISION NOT NULL DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS category_limits (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             month TEXT NOT NULL,
             category TEXT NOT NULL,
-            limit_amount REAL NOT NULL DEFAULT 0,
+            limit_amount DOUBLE PRECISION NOT NULL DEFAULT 0,
             UNIQUE(month, category)
         );
 
@@ -49,4 +45,5 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_tx_type ON transactions(type);
     """)
     conn.commit()
+    cur.close()
     conn.close()
