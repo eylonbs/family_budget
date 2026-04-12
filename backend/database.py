@@ -19,6 +19,13 @@ def init_db():
     conn = get_db()
     try:
         cur = conn.cursor()
+
+        # Drop old paid_by constraint if it exists (was 'Me','Wife','Both', now 'Eylon','Ronny','Both')
+        cur.execute("""
+            ALTER TABLE transactions DROP CONSTRAINT IF EXISTS transactions_paid_by_check
+        """)
+        conn.commit()
+
         cur.execute("""
             CREATE TABLE IF NOT EXISTS transactions (
                 id SERIAL PRIMARY KEY,
