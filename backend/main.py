@@ -78,7 +78,7 @@ class TransactionCreate(BaseModel):
     amount: float = Field(gt=0)
     type: str = Field(pattern=r"^(income|expense)$")
     category: str
-    paid_by: str = Field(pattern=r"^(Me|Wife|Both)$")
+    paid_by: str = Field(pattern=r"^(Eylon|Ronny|Both)$")
     date: str
     recurring: bool = False
 
@@ -170,8 +170,8 @@ def monthly_summary(
     balance = income - expenses
     savings_rate = ((income - expenses) / income * 100) if income > 0 else 0
 
-    me_spent = sum(r["amount"] for r in rows if r["type"] == "expense" and r["paid_by"] == "Me")
-    wife_spent = sum(r["amount"] for r in rows if r["type"] == "expense" and r["paid_by"] == "Wife")
+    eylon_spent = sum(r["amount"] for r in rows if r["type"] == "expense" and r["paid_by"] == "Eylon")
+    ronny_spent = sum(r["amount"] for r in rows if r["type"] == "expense" and r["paid_by"] == "Ronny")
 
     cat_totals: Dict[str, float] = {}
     for r in rows:
@@ -190,8 +190,8 @@ def monthly_summary(
         "savings_rate": round(savings_rate, 1),
         "income_count": income_count,
         "expense_count": expense_count,
-        "me_spent": me_spent,
-        "wife_spent": wife_spent,
+        "eylon_spent": eylon_spent,
+        "ronny_spent": ronny_spent,
         "category_totals": cat_totals,
         "total_transactions": len(rows),
     }

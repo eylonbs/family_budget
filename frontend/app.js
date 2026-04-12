@@ -285,8 +285,8 @@ function updateKPIs() {
   document.getElementById("kpiSavings").textContent = (s.savings_rate || 0).toFixed(1) + "%";
   document.getElementById("kpiSavingsAbs").textContent = fmt(Math.max(0, s.balance || 0)) + " saved";
 
-  document.getElementById("whoMe").textContent = fmt(s.me_spent || 0);
-  document.getElementById("whoWife").textContent = fmt(s.wife_spent || 0);
+  document.getElementById("whoEylon").textContent = fmt(s.eylon_spent || 0);
+  document.getElementById("whoRonny").textContent = fmt(s.ronny_spent || 0);
 
   document.getElementById("txCount").textContent = (s.total_transactions || 0) + " total";
 

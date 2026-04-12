@@ -20,7 +20,7 @@ def init_db():
             amount DOUBLE PRECISION NOT NULL,
             type TEXT NOT NULL CHECK(type IN ('income', 'expense')),
             category TEXT NOT NULL,
-            paid_by TEXT NOT NULL CHECK(paid_by IN ('Me', 'Wife', 'Both')),
+            paid_by TEXT NOT NULL CHECK(paid_by IN ('Eylon', 'Ronny', 'Both')),
             date TEXT NOT NULL,
             recurring BOOLEAN NOT NULL DEFAULT FALSE,
             created_at TIMESTAMP NOT NULL DEFAULT NOW()
