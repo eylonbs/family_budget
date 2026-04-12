@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Family Budget Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<div class="login-screen" id="loginScreen">
+  <div class="login-card">
+    <h1>Family <span>Budget</span></h1>
+    <p>Enter your PIN to access the tracker</p>
+    <div class="login-error" id="loginError"></div>
+    <input type="password" class="form-input" id="pinInput" placeholder="****" maxlength="20"
+           inputmode="numeric" autocomplete="off">
+    <button class="btn-primary" id="loginBtn" style="margin-top:var(--space-2)">Unlock</button>
+  </div>
+</div>
+
+<!-- APP (hidden until authenticated) -->
+<div class="app" id="appRoot" style="display:none">
+
+  <!-- HEADER -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-label="Budget Tracker Logo">
+          <rect width="28" height="28" rx="8" fill="var(--primary)"/>
+          <path d="M8 14h12M14 8v12" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+          <circle cx="20" cy="10" r="3" fill="var(--primary)" stroke="white" stroke-width="1.5"/>
+          <circle cx="8" cy="18" r="3" fill="var(--primary)" stroke="white" stroke-width="1.5"/>
+        </svg>
+        <span class="logo-text">Family <span>Budget</span></span>
+      </div>
+      <div class="month-nav">
+        <button class="btn-icon" id="prevMonth" aria-label="Previous month">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <span class="month-label" id="monthLabel"></span>
+        <button class="btn-icon" id="nextMonth" aria-label="Next month">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="header-right">
+      <button class="btn-outline" id="exportBtn">⬇ Export</button>
+      <button class="btn-icon" id="themeToggle" aria-label="Toggle dark mode">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+      <button class="btn-icon" id="logoutBtn" aria-label="Logout" title="Logout">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- MAIN -->
+  <div class="main">
+    <!-- LEFT COLUMN -->
+    <div>
+      <!-- KPI CARDS -->
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-label">Total Income</div>
+          <div class="kpi-value green" id="kpiIncome">₪0</div>
+          <div class="kpi-sub" id="kpiIncomeCount">0 entries</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Total Expenses</div>
+          <div class="kpi-value red" id="kpiExpenses">₪0</div>
+          <div class="kpi-sub" id="kpiExpensesCount">0 entries</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Balance</div>
+          <div class="kpi-value" id="kpiBalance">₪0</div>
+          <div class="kpi-sub">This month</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Savings Rate</div>
+          <div class="kpi-value gold" id="kpiSavings">0%</div>
+          <div class="kpi-sub" id="kpiSavingsAbs">₪0 saved</div>
+        </div>
+      </div>
+
+      <!-- BUDGET BAR -->
+      <div class="budget-bar-wrap">
+        <div class="budget-bar-header">
+          <span style="font-size:var(--text-sm);font-weight:600">Monthly Budget</span>
+          <span style="font-size:var(--text-xs);color:var(--text-muted)" id="budgetBarLabel">₪0 of ₪0</span>
+        </div>
+        <div class="budget-bar-track">
+          <div class="budget-bar-fill safe" id="budgetBarFill" style="width:0%"></div>
+        </div>
+        <div style="margin-top:var(--space-2);font-size:var(--text-xs);color:var(--text-muted)" id="budgetBarSub">Set your monthly budget →</div>
+      </div>
+
+      <!-- TRANSACTIONS -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-4)">
+        <div class="section-title" style="margin-bottom:0">Transactions</div>
+        <span style="font-size:var(--text-xs);color:var(--text-muted)" id="txCount">0 total</span>
+      </div>
+
+      <!-- SEARCH -->
+      <div class="search-wrap">
+        <span class="search-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        </span>
+        <input type="text" class="form-input" id="searchInput" placeholder="Search transactions...">
+      </div>
+
+      <!-- FILTER CHIPS -->
+      <div class="filter-chips" id="filterChips">
+        <div class="chip active" data-filter="all">All</div>
+        <div class="chip" data-filter="income">Income</div>
+        <div class="chip" data-filter="expense">Expenses</div>
+      </div>
+
+      <!-- TX LIST -->
+      <div class="tx-list" id="txList">
+        <div class="empty-state">
+          <div class="icon">💸</div>
+          <p>No transactions yet.<br>Add your first one →</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+
+      <!-- ADD TRANSACTION -->
+      <div class="card">
+        <div class="card-title">➕ Add Transaction</div>
+        <div class="type-toggle">
+          <button class="type-btn active-expense" id="btnExpense">💸 Expense</button>
+          <button class="type-btn" id="btnIncome">💰 Income</button>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description</label>
+          <input type="text" class="form-input" id="txDesc" placeholder="e.g. Supermarket">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Amount (₪)</label>
+            <input type="number" class="form-input" id="txAmount" placeholder="0.00" min="0" step="0.01">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Date</label>
+            <input type="date" class="form-input" id="txDate">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Category</label>
+            <select class="form-input" id="txCategory">
+              <option value="🛒 Food &amp; Grocery">🛒 Food &amp; Grocery</option>
+              <option value="🏠 Housing">🏠 Housing</option>
+              <option value="🚗 Transport">🚗 Transport</option>
+              <option value="💊 Health">💊 Health</option>
+              <option value="👗 Clothing">👗 Clothing</option>
+              <option value="🎮 Entertainment">🎮 Entertainment</option>
+              <option value="📱 Subscriptions">📱 Subscriptions</option>
+              <option value="🍽️ Dining Out">🍽️ Dining Out</option>
+              <option value="✈️ Travel">✈️ Travel</option>
+              <option value="📚 Education">📚 Education</option>
+              <option value="💰 Salary">💰 Salary</option>
+              <option value="🎁 Gift/Bonus">🎁 Gift/Bonus</option>
+              <option value="📦 Other">📦 Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Paid by</label>
+            <select class="form-input" id="txPerson">
+              <option value="Me">Me</option>
+              <option value="Wife">Wife</option>
+              <option value="Both">Both</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group" style="display:flex;align-items:center;gap:var(--space-3)">
+          <input type="checkbox" id="txRecurring" style="width:16px;height:16px;accent-color:var(--primary)">
+          <label for="txRecurring" style="font-size:var(--text-xs);color:var(--text-muted);cursor:pointer">🔁 Recurring monthly</label>
+        </div>
+        <button class="btn-primary" id="addTxBtn">Add Transaction</button>
+      </div>
+
+      <!-- WHO SPENT -->
+      <div class="card">
+        <div class="card-title">👥 Who Spent More?</div>
+        <div class="who-grid">
+          <div class="who-card">
+            <div class="who-name">Me</div>
+            <div class="who-amount" id="whoMe">₪0</div>
+          </div>
+          <div class="who-card">
+            <div class="who-name">Wife</div>
+            <div class="who-amount" id="whoWife">₪0</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CATEGORY BREAKDOWN -->
+      <div class="card">
+        <div class="card-title">📊 Spending by Category</div>
+        <div class="chart-wrap"><canvas id="donutChart"></canvas></div>
+        <div style="margin-top:var(--space-4)">
+          <div class="cat-list" id="catList"></div>
+        </div>
+      </div>
+
+      <!-- MONTHLY BUDGET SETTINGS -->
+      <div class="card">
+        <div class="card-title">🎯 Monthly Budget Goals</div>
+        <div id="budgetGoals">
+          <div class="budget-input-row">
+            <label>Total Budget (₪)</label>
+            <input type="number" class="form-input" id="budgetTotal" placeholder="0">
+          </div>
+          <div class="budget-input-row">
+            <label>🛒 Food &amp; Grocery</label>
+            <input type="number" class="form-input" id="budgetFood" placeholder="0">
+          </div>
+          <div class="budget-input-row">
+            <label>🍽️ Dining Out</label>
+            <input type="number" class="form-input" id="budgetDining" placeholder="0">
+          </div>
+          <div class="budget-input-row">
+            <label>🎮 Entertainment</label>
+            <input type="number" class="form-input" id="budgetEntertainment" placeholder="0">
+          </div>
+          <div class="budget-input-row">
+            <label>🚗 Transport</label>
+            <input type="number" class="form-input" id="budgetTransport" placeholder="0">
+          </div>
+        </div>
+        <div style="margin-top:var(--space-4)" id="budgetOverruns"></div>
+      </div>
+
+      <!-- SAVINGS TIP -->
+      <div class="tip-box" id="savingsTip">
+        <div class="tip-title">💡 Savings Tip</div>
+        <div class="tip-text" id="tipText">Add transactions to see personalized saving tips based on your spending habits.</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

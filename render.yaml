@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: family-budget-tracker
+    runtime: python
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: APP_PIN
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: DB_PATH
+        value: /opt/render/project/src/data/budget.db
+    disk:
+      name: budget-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
