@@ -1,4 +1,5 @@
 import os
+from urllib.parse import quote_plus
 import psycopg2
 import psycopg2.extras
 
@@ -8,9 +9,26 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
+DB_HOST = os.environ.get("DB_HOST", "")
+DB_PORT = os.environ.get("DB_PORT", "6543")
+DB_NAME = os.environ.get("DB_NAME", "postgres")
+DB_USER = os.environ.get("DB_USER", "postgres")
+DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
+
 
 def get_db():
-    conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
+    if DB_HOST:
+        conn = psycopg2.connect(
+            host=DB_HOST,
+            port=int(DB_PORT),
+            dbname=DB_NAME,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            connect_timeout=10,
+            options="-c search_path=public",
+        )
+    else:
+        conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
     conn.autocommit = False
     return conn
 
