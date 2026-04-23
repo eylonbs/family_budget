@@ -38,12 +38,6 @@ def init_db():
     try:
         cur = conn.cursor()
 
-        # Drop old paid_by constraint if it exists (was 'Me','Wife','Both', now 'Eylon','Ronny','Both')
-        cur.execute("""
-            ALTER TABLE transactions DROP CONSTRAINT IF EXISTS transactions_paid_by_check
-        """)
-        conn.commit()
-
         cur.execute("""
             CREATE TABLE IF NOT EXISTS transactions (
                 id SERIAL PRIMARY KEY,
@@ -75,6 +69,10 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_tx_date ON transactions(date);
             CREATE INDEX IF NOT EXISTS idx_tx_type ON transactions(type);
         """)
+        conn.commit()
+
+        # Drop old paid_by constraint if it exists from a previous schema
+        cur.execute("ALTER TABLE transactions DROP CONSTRAINT IF EXISTS transactions_paid_by_check")
         conn.commit()
         cur.close()
     finally:
